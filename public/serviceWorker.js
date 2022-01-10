@@ -17,32 +17,39 @@ const FILES_TO_CACHE = [
 	"/icons/icon-72x72.png"
 ];
 
-self.addEventListener("install", function (event) {
-	event.waitUntil(
-		caches.open(CACHE_NAME).then((cache) => cache.addAll(FILES_TO_CACHE))
+// Install
+self.addEventListener("install", function (evt) {
+	// pre cache all static assets
+	evt.waitUntil(
+		caches.open(CACHE_NAME).then((cache) => {
+			console.log("Your files were pre-cached successfully!");
+			return cache.addAll(FILES_TO_CACHE);
+		})
 	);
 });
 
-self.addEventListener("activate", function (event) {
-	event.waitUntil(
-		caches.keys().then(function (keyList) {
-			let cacheKeeplist = keyList.filter(function (key) {
-				return key.indexOf(CACHE_NAME);
-			});
-			cacheKeeplist.push(CACHE_NAME);
+// Tell the browser to activate this service worker immediately once it has finished installing
+self.skipWaiting();
 
+// Activate
+self.addEventListener("activate", function (evt) {
+	evt.waitUntil(
+		caches.keys().then((keyList) => {
 			return Promise.all(
-				keyList.map(function (key, i) {
-					if (cacheKeeplist.indexOf(key) === -1) {
-						return caches.delete(keyList[i]);
+				keyList.map((key) => {
+					if (key !== CACHE_NAME && key !== DATA_CACHE_NAME) {
+						console.log("Removing old cache data", key);
+						return caches.delete(key);
 					}
 				})
 			);
 		})
 	);
+
+	self.clients.claim();
 });
 
-// Intercept fetch requests
+// Fetch
 self.addEventListener("fetch", function (evt) {
 	if (evt.request.url.includes("/api/")) {
 		evt.respondWith(
@@ -55,7 +62,6 @@ self.addEventListener("fetch", function (evt) {
 							if (response.status === 200) {
 								cache.put(evt.request.url, response.clone());
 							}
-
 							return response;
 						})
 						.catch((err) => {
@@ -65,19 +71,14 @@ self.addEventListener("fetch", function (evt) {
 				})
 				.catch((err) => console.log(err))
 		);
-
 		return;
 	}
 
 	evt.respondWith(
-		fetch(evt.request).catch(async function () {
-			const response = await caches.match(evt.request);
-			if (response) {
-				return response;
-			} else if (evt.request.headers.get("accept").includes("text/html")) {
-				// return the cached home page for all requests for html pages
-				return caches.match("/");
-			}
+		caches.open(CACHE_NAME).then((cache) => {
+			return cache.match(evt.request).then((response) => {
+				return response || fetch(evt.request);
+			});
 		})
 	);
 });
